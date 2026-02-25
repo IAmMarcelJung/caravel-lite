@@ -86,7 +86,11 @@
 	`include "xres_buf.v"
 	`include "spare_logic_block.v"
 	`include "mgmt_core_wrapper.v"
+	`include "mgmt_core.v"
 	`include "caravel.v"
+	`include "DFFRAM.v"
+	`include "DFFRAMBB.v"
+	`include "VexRiscv_LiteDebug.v"
     `endif
 
     `include "simple_por.v"
