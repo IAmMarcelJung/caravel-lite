@@ -74,20 +74,20 @@ module housekeeping #(
     input wb_we_i,
     input wb_cyc_i,
     input wb_stb_i,
-    output wb_ack_o,
-    output [31:0] wb_dat_o,
+    output reg wb_ack_o,
+    output reg [31:0] wb_dat_o,
 
     // Primary reset
     input porb,
 
     // Clocking control parameters
-    output pll_ena,
-    output pll_dco_ena,
-    output [4:0] pll_div,
-    output [2:0] pll_sel,
-    output [2:0] pll90_sel,
-    output [25:0] pll_trim,
-    output pll_bypass,
+    output reg pll_ena,
+    output reg pll_dco_ena,
+    output reg [4:0] pll_div,
+    output reg [2:0] pll_sel,
+    output reg [2:0] pll90_sel,
+    output reg [25:0] pll_trim,
+    output reg pll_bypass,
 
     // Module enable status from SoC
     input  qspi_enabled,	// Flash SPI is in quad mode
@@ -123,7 +123,7 @@ module housekeeping #(
     output [`MPRJ_IO_PADS-1:0] mgmt_gpio_oeb,
 
     // Power control output (reserved for future use with LDOs)
-    output [`MPRJ_PWR_PADS-1:0] pwr_ctrl_out,
+    output reg [`MPRJ_PWR_PADS-1:0] pwr_ctrl_out,
 
     // CPU trap state status (for system monitoring)
     input trap,
@@ -170,9 +170,9 @@ module housekeeping #(
     input pad_flash_io0_di,
     input pad_flash_io1_di,
 
-    output sram_ro_clk,
-    output sram_ro_csb,
-    output [7:0] sram_ro_addr,
+    output reg sram_ro_clk,
+    output reg sram_ro_csb,
+    output reg [7:0] sram_ro_addr,
     input [31:0] sram_ro_data,
 
     // System signal monitoring
@@ -185,13 +185,6 @@ module housekeeping #(
     localparam OEB = 1;		// Offset of output enable (bar) in shift register
     localparam INP_DIS = 3;	// Offset of input disable in shift register
 
-    reg [25:0] pll_trim;
-    reg [4:0] pll_div;
-    reg [2:0] pll_sel;
-    reg [2:0] pll90_sel;
-    reg pll_dco_ena;
-    reg pll_ena;
-    reg pll_bypass;
     reg reset_reg;
     reg irq_spi;
     reg serial_bb_clock;
@@ -203,9 +196,6 @@ module housekeeping #(
     reg serial_xfer;
     reg hkspi_disable;
 
-    reg sram_ro_clk;
-    reg sram_ro_csb;
-    reg [7:0] sram_ro_addr;
 
     reg clk1_output_dest;
     reg clk2_output_dest;
@@ -215,27 +205,33 @@ module housekeeping #(
 
     reg [IO_CTRL_BITS-1:0] gpio_configure [`MPRJ_IO_PADS-1:0];
     reg [`MPRJ_IO_PADS-1:0] mgmt_gpio_data;
-    reg [`MPRJ_PWR_PADS-1:0] pwr_ctrl_out;
 
     /* mgmt_gpio_data_buf holds the lower bits during a back-door
      * write to GPIO data so that all 32 bits can update at once.
      */
     reg [23:0] mgmt_gpio_data_buf;
 
-    wire usr1_vcc_pwrgood;
-    wire usr2_vcc_pwrgood;
-    wire usr1_vdd_pwrgood;
-    wire usr2_vdd_pwrgood;
 
     wire [7:0] odata;
     wire [7:0] idata;
     wire [7:0] iaddr;
-
-    wire [2:0] irq;
-
-    wire trap;
+    //
+    // SPI is considered active when the GPIO for CSB is set to input and
+    // CSB is low.  SPI is considered "busy" when rdstb or wrstb are high,
+    // indicating that the SPI will read or write a byte on the next SCK
+    // transition.
     wire rdstb;
     wire wrstb;
+
+    wire spi_is_enabled = (~gpio_configure[3][INP_DIS]) & (~hkspi_disable);
+    wire spi_is_active = spi_is_enabled && (mgmt_gpio_in[3] == 1'b0);
+    wire spi_is_busy = spi_is_active && (rdstb || wrstb);
+
+wire [11:0] mfgr_id;
+wire [7:0]  prod_id;
+wire [31:0] mask_rev;
+reg serial_busy;
+
     wire pass_thru_mgmt;		// Mode detected by housekeeping_spi
     wire pass_thru_mgmt_delay;
     wire pass_thru_user;		// Mode detected by housekeeping_spi
@@ -250,7 +246,6 @@ module housekeeping #(
     wire	cwstb;	// Combination of SPI write strobe and back door write strobe
     wire	csclk;	// Combination of SPI SCK and back door access trigger
 
-    wire [31:0] sram_ro_data;
 
     // Housekeeping side 3-wire interface to GPIOs (see below)
     wire [`MPRJ_IO_PADS-1:0] mgmt_gpio_out_pre;
@@ -323,8 +318,6 @@ module housekeeping #(
     reg  	wbbd_sck;	/* wishbone access trigger (back-door clock) */
     reg  	wbbd_write;	/* wishbone write trigger (back-door strobe) */
     reg		wbbd_busy;	/* Raised during a wishbone read or write */
-    reg		wb_ack_o;	/* acknowledge signal back to wishbone bus */
-    reg [31:0]	wb_dat_o;	/* data output to wishbone bus */
 
     // This defines a state machine that accesses the SPI registers through
     // the back door wishbone interface.  The process is relatively slow
@@ -766,14 +759,6 @@ module housekeeping #(
     	.pass_thru_user_reset(pass_thru_user_reset)
     );
 
-    // SPI is considered active when the GPIO for CSB is set to input and
-    // CSB is low.  SPI is considered "busy" when rdstb or wrstb are high,
-    // indicating that the SPI will read or write a byte on the next SCK
-    // transition.
-
-    wire spi_is_enabled = (~gpio_configure[3][INP_DIS]) & (~hkspi_disable);
-    wire spi_is_active = spi_is_enabled && (mgmt_gpio_in[3] == 1'b0);
-    wire spi_is_busy = spi_is_active && (rdstb || wrstb);
 
     // GPIO data handling to and from the management SoC
 
@@ -869,12 +854,6 @@ module housekeeping #(
     reg serial_clock_pre;
     reg serial_resetn_pre;
     reg serial_load_pre;
-    reg serial_busy;
-    wire serial_data_1;
-    wire serial_data_2;
-    wire serial_clock;
-    wire serial_resetn;
-    wire serial_load;
     reg [IO_CTRL_BITS-1:0] serial_data_staging_1;
     reg [IO_CTRL_BITS-1:0] serial_data_staging_2;
 
@@ -980,9 +959,6 @@ module housekeeping #(
 
     // SPI Identification
 
-    wire [11:0] mfgr_id;
-    wire [7:0]  prod_id;
-    wire [31:0] mask_rev;
 
     assign mfgr_id = 12'h456;		// Hard-coded
     assign prod_id = 8'h11;		// Hard-coded
