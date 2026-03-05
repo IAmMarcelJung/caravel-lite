@@ -65,7 +65,7 @@ module spiflash #(
 	reg [7:0] spi_out;
 	reg spi_io_vld;
 
-	reg powered_up = 0;
+	reg powered_up = 1;
 
 	localparam [3:0] mode_spi         = 1;
 	localparam [3:0] mode_dspi_rd     = 2;
@@ -108,14 +108,14 @@ module spiflash #(
 
 	initial begin
 		$display("Memory 5 bytes = 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x",
-			memory[1048576], memory[1048577], memory[1048578],
-			memory[1048579], memory[1048580]);
+			memory[128], memory[129], memory[130],
+			memory[131], memory[132]);
 		$display("Reading %s",  FILENAME);
 		$readmemh(FILENAME, memory);
 		$display("%s loaded into memory", FILENAME);
 		$display("Memory 5 bytes = 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x",
-			memory[1048576], memory[1048577], memory[1048578],
-			memory[1048579], memory[1048580]);
+			memory[128], memory[129], memory[130],
+			memory[131], memory[132]);
 	end
 
 	task spi_action;
